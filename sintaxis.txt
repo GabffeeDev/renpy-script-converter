@@ -1,0 +1,227 @@
+=================================================
+SINTAXIS OBSIDIAN → REN'PY
+=================================================
+
+-------------------------------------------------
+LABELS
+-------------------------------------------------
+
+[label]
+nombre_label
+
+↓
+
+label nombre_label:
+
+
+Ejemplo:
+
+[label]
+lara_poema
+
+↓
+
+label lara_poema:
+
+
+-------------------------------------------------
+JUMPS
+-------------------------------------------------
+
+[jump nombre_label]
+
+↓
+
+jump nombre_label
+
+
+Ejemplo:
+
+[jump chica_misteriosa]
+
+↓
+
+jump chica_misteriosa
+
+También fucniona con los labels locales jump .chica misteriosa.
+
+-------------------------------------------------
+CALLS
+-------------------------------------------------
+
+[call nombre_label]
+
+↓
+
+call nombre_label
+
+
+Ejemplo:
+
+[call evento_secreto]
+
+↓
+
+call evento_secreto
+
+También funiciona con los labels locales call .evento_secreto.
+
+-------------------------------------------------
+PERSONAJES
+-------------------------------------------------
+
+[Narrador]
+Texto
+
+↓
+
+"Texto"
+
+
+[Lara]
+Hola
+
+↓
+
+l "Hola"
+
+
+[Isaak]
+Hola
+
+↓
+
+i "Hola"
+
+
+[Erika]
+Hola
+
+↓
+
+e "Hola"
+
+
+-------------------------------------------------
+COMENTARIOS SIMPLES
+-------------------------------------------------
+
+%% Texto de comentario %%
+
+↓
+
+# Texto de comentario
+
+
+Ejemplo:
+
+%% Lara Sprite Neutral %%
+
+↓
+
+# Lara Sprite Neutral
+
+
+-------------------------------------------------
+COMENTARIOS MULTILÍNEA
+-------------------------------------------------
+
+%%
+Texto
+de
+comentario
+%%
+
+↓
+
+# Texto
+# de
+# comentario
+
+
+Ejemplo:
+
+%%
+Poema de referencia
+Inspiración para la escena
+%%
+
+↓
+
+# Poema de referencia
+# Inspiración para la escena
+
+
+-------------------------------------------------
+MENÚS
+-------------------------------------------------
+
+menu:
+
+[Opción 1]
+
+[Opción 2]
+
+[end menu]
+
+↓
+
+menu:
+
+    "Opción 1":
+        pass
+
+    "Opción 2":
+        pass
+
+
+-------------------------------------------------
+ENLACES OBSIDIAN
+-------------------------------------------------
+
+[[Acto 2]]
+[[Ruta Neutral]]
+[[Erika]]
+
+↓
+
+IGNORAR
+
+(No generan código Ren'Py)
+
+
+-------------------------------------------------
+VARIABLES DE PERSONAJES
+-------------------------------------------------
+
+[Lara]   → l
+[Isaak]  → i
+[Erika]  → e
+[Narrador] → narrador sin variable
+
+
+-------------------------------------------------
+REGLAS IMPORTANTES
+-------------------------------------------------
+
+1. Los [[enlaces]] se ignoran.
+
+2. Los %%comentarios%% se convierten en comentarios.
+
+3. Los bloques %% ... %% se convierten en comentarios multilínea.
+
+4. [label] siempre debe ir seguido del nombre del label.
+
+5. [jump nombre] genera un jump.
+
+6. menu: abre un menú.
+
+7. [Nombre] dentro de un menú se interpreta como una opción.
+
+8. [end menu] cierra el menú.
+
+9. Si una opción no tiene lógica todavía, genera:
+
+    pass
+
+10. El nombre del archivo .md NO afecta al código generado.
