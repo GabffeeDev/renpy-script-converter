@@ -24,6 +24,20 @@ lara_poema
 label lara_poema:
 
 
+Labels locales / con sangria:
+
+[label]
+escena
+    [label]
+    .secreto
+
+↓
+
+label escena:
+
+    label .secreto:
+
+
 -------------------------------------------------
 JUMPS
 -------------------------------------------------

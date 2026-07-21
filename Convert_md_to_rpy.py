@@ -34,21 +34,37 @@ def select_output_folder():
 
     return folder
 
-def current_indent(in_menu, current_option):
+def current_indent(base_indent, in_menu, current_option):
 
     if in_menu and current_option:
-        return 3
+        return base_indent + 2
 
-    return 1
+    return base_indent
 
 
 def tabs(level):
     return "    " * level
 
 
-def finalize_menu_option(output, option_has_content):
+def source_indent_level(line):
+    expanded = line.expandtabs(4)
+    leading_spaces = len(expanded) - len(expanded.lstrip(" "))
+    return leading_spaces // 4
+
+
+def update_label_stack(label_stack, source_indent):
+    while label_stack and source_indent < label_stack[-1]:
+        label_stack.pop()
+
+    if label_stack:
+        return label_stack[-1] + 1
+
+    return 1
+
+
+def finalize_menu_option(output, base_indent, option_has_content):
     if not option_has_content:
-        output.append(f"{tabs(3)}pass")
+        output.append(f"{tabs(base_indent + 2)}pass")
 
 
 def is_menu_command(name):
@@ -124,6 +140,8 @@ def convert_file(md_path, rpy_path):
     in_menu = False
     current_option = None
     option_has_content = False
+    label_stack = []
+    base_indent = 1
 
     with open(md_path, "r", encoding="utf-8") as f:
         lines = [line.rstrip() for line in f]
@@ -132,11 +150,15 @@ def convert_file(md_path, rpy_path):
 
     while i < len(lines):
 
-        line = lines[i].strip()
+        raw_line = lines[i]
+        line = raw_line.strip()
+        source_indent = source_indent_level(raw_line)
 
         if not line:
             i += 1
             continue
+
+        base_indent = update_label_stack(label_stack, source_indent)
 
         # ==========================
         # LABEL
@@ -145,9 +167,19 @@ def convert_file(md_path, rpy_path):
         if line.lower() == "[label]":
 
             label_name = lines[i + 1].strip()
+            label_indent = max(
+                source_indent,
+                source_indent_level(lines[i + 1])
+            )
+
+            while label_stack and label_indent <= label_stack[-1]:
+                label_stack.pop()
+
+            label_stack.append(label_indent)
+            base_indent = label_indent + 1
 
             output.append("")
-            output.append(f"label {label_name}:")
+            output.append(f"{tabs(label_indent)}label {label_name}:")
             output.append("")
 
             i += 2
@@ -162,7 +194,7 @@ def convert_file(md_path, rpy_path):
         if jump_match:
 
             jump_target = jump_match.group(1)
-            indent = current_indent(in_menu, current_option)
+            indent = current_indent(base_indent, in_menu, current_option)
 
             output.append(f"{tabs(indent)}jump {jump_target}")
 
@@ -181,7 +213,7 @@ def convert_file(md_path, rpy_path):
         if call_match:
 
             call_target = call_match.group(1)
-            indent = current_indent(in_menu, current_option)
+            indent = current_indent(base_indent, in_menu, current_option)
 
             output.append(f"{tabs(indent)}call {call_target}")
 
@@ -198,7 +230,7 @@ def convert_file(md_path, rpy_path):
         if line == "%%":
 
             i += 1
-            indent = current_indent(in_menu, current_option)
+            indent = current_indent(base_indent, in_menu, current_option)
 
             while i < len(lines):
 
@@ -225,7 +257,7 @@ def convert_file(md_path, rpy_path):
 
             comment = line[2:-2].strip()
 
-            indent = current_indent(in_menu, current_option)
+            indent = current_indent(base_indent, in_menu, current_option)
 
             output.append(f"{tabs(indent)}# {comment}")
 
@@ -250,7 +282,7 @@ def convert_file(md_path, rpy_path):
 
         if line.lower() == "menu:":
 
-            output.append(f"{tabs(1)}menu:")
+            output.append(f"{tabs(base_indent)}menu:")
             output.append("")
 
             in_menu = True
@@ -267,7 +299,7 @@ def convert_file(md_path, rpy_path):
         if line.lower() == "[end menu]":
 
             if in_menu and current_option:
-                finalize_menu_option(output, option_has_content)
+                finalize_menu_option(output, base_indent, option_has_content)
 
             in_menu = False
             current_option = None
@@ -296,13 +328,13 @@ def convert_file(md_path, rpy_path):
                 if not is_character and not is_menu_command(option_name):
 
                     if current_option:
-                        finalize_menu_option(output, option_has_content)
+                        finalize_menu_option(output, base_indent, option_has_content)
 
                     current_option = option_name
                     option_has_content = False
 
                     output.append("")
-                    output.append(f'{tabs(2)}"{option_name}":')
+                    output.append(f'{tabs(base_indent + 1)}"{option_name}":')
 
                     i += 1
                     continue
@@ -328,7 +360,7 @@ def convert_file(md_path, rpy_path):
         # DIÁLOGOS
         # ==========================
 
-        indent = current_indent(in_menu, current_option)
+        indent = current_indent(base_indent, in_menu, current_option)
 
         if current_speaker == "Narrador":
 
