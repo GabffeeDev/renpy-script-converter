@@ -9,8 +9,11 @@ CHARACTERS = {
     "Player": "mc"
 }
 
+<<<<<<< HEAD
 DEFAULT_MD_DIR = r"D:\GABFFEE_STUDIO\OBSIDIAN"
 DEFAULT_OUTPUT_DIR = r"E:\RENPY_GAMES"
+=======
+>>>>>>> c509365220fc9f3681ee0f56cc894ea033dba0b7
 CACHE_DIR_NAME = ".md_to_rpy_cache"
 
 
@@ -27,7 +30,10 @@ class WriteResult:
     def changed(self):
         return self.added + self.replaced + self.deleted
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> c509365220fc9f3681ee0f56cc894ea033dba0b7
 def select_md_files():
 
     root = Tk()
@@ -145,9 +151,15 @@ def find_sequence(lines, sequence, start=0):
     return -1
 
 
+<<<<<<< HEAD
 def find_nearby_insert_position(lines, base_lines, base_index, start):
     before = base_lines[max(0, base_index - 6):base_index]
     after = base_lines[base_index:base_index + 6]
+=======
+def find_insert_position(lines, base_lines, base_index, start):
+    before = base_lines[max(0, base_index - 4):base_index]
+    after = base_lines[base_index:base_index + 4]
+>>>>>>> c509365220fc9f3681ee0f56cc894ea033dba0b7
 
     before_pos = find_sequence(lines, before, start)
 
@@ -181,7 +193,11 @@ def merge_from_snapshot(existing_lines, base_lines, new_lines):
             continue
 
         if tag == "insert":
+<<<<<<< HEAD
             insert_pos = find_nearby_insert_position(
+=======
+            insert_pos = find_insert_position(
+>>>>>>> c509365220fc9f3681ee0f56cc894ea033dba0b7
                 merged,
                 base_lines,
                 base_start,
