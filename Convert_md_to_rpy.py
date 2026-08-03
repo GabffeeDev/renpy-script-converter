@@ -1,11 +1,32 @@
 import os
 import re
+from dataclasses import dataclass
+from difflib import SequenceMatcher
 from tkinter import Tk, filedialog
 
 CHARACTERS = {
     "Yuri": "y",
     "Player": "mc"
 }
+
+DEFAULT_MD_DIR = r"D:\GABFFEE_STUDIO\OBSIDIAN"
+DEFAULT_OUTPUT_DIR = r"E:\RENPY_GAMES"
+CACHE_DIR_NAME = ".md_to_rpy_cache"
+
+
+@dataclass
+class WriteResult:
+    added: int = 0
+    replaced: int = 0
+    deleted: int = 0
+    conflicts: int = 0
+    bootstrapped: bool = False
+    created: bool = False
+
+    @property
+    def changed(self):
+        return self.added + self.replaced + self.deleted
+
 
 def select_md_files():
 
@@ -14,6 +35,7 @@ def select_md_files():
 
     files = filedialog.askopenfilenames(
         title="Selecciona los archivos Markdown",
+        initialdir=DEFAULT_MD_DIR,
         filetypes=[("Markdown", "*.md")]
     )
 
@@ -23,11 +45,14 @@ def select_md_files():
 
 def select_output_folder():
 
+    os.makedirs(DEFAULT_OUTPUT_DIR, exist_ok=True)
+
     root = Tk()
     root.withdraw()
 
     folder = filedialog.askdirectory(
-        title="Selecciona la carpeta destino"
+        title="Selecciona la carpeta destino",
+        initialdir=DEFAULT_OUTPUT_DIR
     )
 
     root.destroy()
@@ -81,6 +106,115 @@ def normalize_line(line):
     return line.strip()
 
 
+def count_content_lines(lines):
+    return len([line for line in lines if normalize_line(line)])
+
+
+def read_text_lines(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return [line.rstrip("\n\r") for line in f.readlines()]
+
+
+def write_text_lines(path, lines):
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+
+def get_cache_path(rpy_path):
+    output_dir = os.path.dirname(os.path.abspath(rpy_path))
+    cache_dir = os.path.join(output_dir, CACHE_DIR_NAME)
+    return os.path.join(cache_dir, os.path.basename(rpy_path) + ".base")
+
+
+def save_generation_snapshot(rpy_path, lines):
+    cache_path = get_cache_path(rpy_path)
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    write_text_lines(cache_path, lines)
+
+
+def find_sequence(lines, sequence, start=0):
+    if not sequence:
+        return start
+
+    max_start = len(lines) - len(sequence)
+
+    for index in range(max(start, 0), max_start + 1):
+        if lines[index:index + len(sequence)] == sequence:
+            return index
+
+    return -1
+
+
+def find_nearby_insert_position(lines, base_lines, base_index, start):
+    before = base_lines[max(0, base_index - 6):base_index]
+    after = base_lines[base_index:base_index + 6]
+
+    before_pos = find_sequence(lines, before, start)
+
+    if before and before_pos != -1:
+        return before_pos + len(before)
+
+    after_pos = find_sequence(lines, after, start)
+
+    if after and after_pos != -1:
+        return after_pos
+
+    return len(lines)
+
+
+def merge_from_snapshot(existing_lines, base_lines, new_lines):
+    matcher = SequenceMatcher(None, base_lines, new_lines)
+    merged = list(existing_lines)
+    cursor = 0
+    result = WriteResult()
+
+    for tag, base_start, base_end, new_start, new_end in matcher.get_opcodes():
+        old_block = base_lines[base_start:base_end]
+        new_block = new_lines[new_start:new_end]
+
+        if tag == "equal":
+            equal_pos = find_sequence(merged, old_block, cursor)
+
+            if equal_pos != -1:
+                cursor = equal_pos + len(old_block)
+
+            continue
+
+        if tag == "insert":
+            insert_pos = find_nearby_insert_position(
+                merged,
+                base_lines,
+                base_start,
+                cursor
+            )
+            merged[insert_pos:insert_pos] = new_block
+            cursor = insert_pos + len(new_block)
+            result.added += count_content_lines(new_block)
+            continue
+
+        replace_pos = find_sequence(merged, old_block, cursor)
+
+        if replace_pos == -1:
+            result.conflicts += 1
+            continue
+
+        if tag == "delete":
+            del merged[replace_pos:replace_pos + len(old_block)]
+            cursor = replace_pos
+            result.deleted += count_content_lines(old_block)
+            continue
+
+        if tag == "replace":
+            merged[replace_pos:replace_pos + len(old_block)] = new_block
+            cursor = replace_pos + len(new_block)
+            result.replaced += max(
+                count_content_lines(old_block),
+                count_content_lines(new_block)
+            )
+
+    return merged, result
+
+
 def merge_with_existing(existing_lines, new_lines):
     existing_set = {
         normalize_line(line)
@@ -115,21 +249,41 @@ def merge_with_existing(existing_lines, new_lines):
 
 def write_rpy_file(rpy_path, new_lines):
     if os.path.exists(rpy_path):
-        with open(rpy_path, "r", encoding="utf-8") as f:
-            existing_lines = [line.rstrip("\n\r") for line in f.readlines()]
+        existing_lines = read_text_lines(rpy_path)
+        cache_path = get_cache_path(rpy_path)
 
-        merged_lines, added_count = merge_with_existing(existing_lines, new_lines)
-        content = "\n".join(merged_lines)
+        if os.path.exists(cache_path):
+            base_lines = read_text_lines(cache_path)
+            merged_lines, result = merge_from_snapshot(
+                existing_lines,
+                base_lines,
+                new_lines
+            )
 
-        with open(rpy_path, "w", encoding="utf-8") as f:
-            f.write(content)
+            if result.conflicts:
+                return WriteResult(conflicts=result.conflicts)
+        else:
+            merged_lines, added_count = merge_with_existing(
+                existing_lines,
+                new_lines
+            )
+            result = WriteResult(
+                added=added_count,
+                bootstrapped=True
+            )
 
-        return added_count
+        write_text_lines(rpy_path, merged_lines)
+        save_generation_snapshot(rpy_path, new_lines)
 
-    with open(rpy_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(new_lines))
+        return result
 
-    return len([line for line in new_lines if normalize_line(line)])
+    write_text_lines(rpy_path, new_lines)
+    save_generation_snapshot(rpy_path, new_lines)
+
+    return WriteResult(
+        added=count_content_lines(new_lines),
+        created=True
+    )
 
 
 def convert_file(md_path, rpy_path):
@@ -415,7 +569,7 @@ def main():
     os.makedirs(dest_dir, exist_ok=True)
 
     converted = 0
-    added_total = 0
+    changed_total = 0
 
     for md_path in md_files:
 
@@ -426,20 +580,39 @@ def main():
         rpy_path = os.path.join(dest_dir, rpy_name)
         existed_before = os.path.exists(rpy_path)
 
-        added_lines = convert_file(md_path, rpy_path)
+        result = convert_file(md_path, rpy_path)
 
         if existed_before:
-            if added_lines:
-                print(f"+ {filename} ({added_lines} lineas nuevas)")
+            details = []
+
+            if result.added:
+                details.append(f"{result.added} lineas nuevas")
+
+            if result.replaced:
+                details.append(f"{result.replaced} lineas reemplazadas")
+
+            if result.deleted:
+                details.append(f"{result.deleted} lineas eliminadas")
+
+            if result.conflicts:
+                details.append(
+                    f"{result.conflicts} bloque(s) conservados por conflicto"
+                )
+
+            if result.bootstrapped:
+                details.append("base incremental creada")
+
+            if details:
+                print(f"+ {filename} ({', '.join(details)})")
             else:
                 print(f"= {filename} (sin cambios)")
         else:
             print(f"OK {filename}")
 
         converted += 1
-        added_total += added_lines
+        changed_total += result.changed
 
-    print(f"\nConversion terminada. ({converted} archivos, {added_total} lineas nuevas)")
+    print(f"\nConversion terminada. ({converted} archivos, {changed_total} cambios)")
 
 if __name__ == "__main__":
     main()
