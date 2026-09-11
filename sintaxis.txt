@@ -1,10 +1,31 @@
 =================================================
-SINTAXIS OBSIDIAN → REN'PY
+SINTAXIS OBSIDIAN -> REN'PY
 =================================================
+
+Este documento tiene dos tipos de formato para varias cosas:
+el CLASICO (como se escribia antes) y el CORTO (nuevo, mas
+rapido de escribir). Los dos funcionan siempre: el conversor
+nunca dejo de entender el formato clasico, asi que ningun
+archivo viejo se rompe. Usa el que te resulte mas comodo, y
+podes mezclarlos en el mismo archivo sin problema.
+
+El programa acepta tanto archivos .md (Obsidian) como .txt
+(texto plano). No importa cual uses, la sintaxis es la misma.
 
 -------------------------------------------------
 LABELS
 -------------------------------------------------
+
+FORMATO CORTO (recomendado):
+
+[label nombre_label]
+
+↓
+
+label nombre_label:
+
+
+FORMATO CLASICO (sigue funcionando igual):
 
 [label]
 nombre_label
@@ -14,22 +35,19 @@ nombre_label
 label nombre_label:
 
 
-Ejemplo:
+Ejemplo (formato corto):
 
-[label]
-lara_poema
+[label lara_poema]
 
 ↓
 
 label lara_poema:
 
 
-Labels locales / con sangria:
+Labels locales / con sangria (funciona en ambos formatos):
 
-[label]
-escena
-    [label]
-    .secreto
+[label escena]
+    [label .secreto]
 
 ↓
 
@@ -57,7 +75,7 @@ Ejemplo:
 
 jump chica_misteriosa
 
-También fucniona con los labels locales jump .chica misteriosa.
+También funciona con los labels locales: [jump .chica_misteriosa]
 
 -------------------------------------------------
 CALLS
@@ -78,19 +96,59 @@ Ejemplo:
 
 call evento_secreto
 
-También funiciona con los labels locales call .evento_secreto.
+También funciona con los labels locales: [call .evento_secreto]
 
 -------------------------------------------------
-PERSONAJES
+PERSONAJES Y DIALOGOS
 -------------------------------------------------
 
-[Narrador]
-Texto
+Los personajes y sus variables (Lara -> l, Ren -> r, etc.) ya
+NO se definen en este documento: se configuran desde la pestaña
+"Personajes" del programa. Ahi le pones el nombre que vas a usar
+en tus notas y la letra/variable que va a usar Ren'Py. Lo que
+sigue son las dos formas de escribir un dialogo.
+
+Los nombres de personaje NO distinguen mayusculas de minusculas:
+"[Lara]", "[lara]" y "Lara:" se reconocen todos como el mismo
+personaje "Lara".
+
+
+FORMATO CORTO (recomendado) - una sola linea:
+
+Lara: Hola
 
 ↓
 
-"Texto"
+l "Hola"
 
+
+Ejemplo con Narrador:
+
+Narrador: Habia una vez.
+
+↓
+
+"Habia una vez."
+
+
+Podes encadenar varias lineas cortas seguidas, cada una con su
+propio nombre (cada una genera su propia linea de dialogo, porque
+cada una trae su etiqueta explicita):
+
+Narrador: La puerta se abrio de golpe.
+Lara: ¿Quien anda ahi?
+Ren: Solo soy yo.
+
+↓
+
+"La puerta se abrio de golpe."
+l "¿Quien anda ahi?"
+r "Solo soy yo."
+
+
+FORMATO CLASICO (sigue funcionando igual) - el nombre en su
+propia linea, y despues todo el texto que siga se le asigna a
+ese personaje hasta que aparezca otro nombre:
 
 [Lara]
 Hola
@@ -100,20 +158,67 @@ Hola
 l "Hola"
 
 
-[Isaak]
-Hola
+[Narrador]
+Texto
 
 ↓
 
-i "Hola"
+"Texto"
 
 
-[Erika]
-Hola
+Los dos formatos se pueden combinar libremente en el mismo
+archivo.
+
+-------------------------------------------------
+PARRAFOS DE VARIAS LINEAS (fusion automatica)
+-------------------------------------------------
+
+Si un mismo personaje sigue hablando en la linea de abajo SIN
+volver a poner su nombre, esas lineas se juntan en UN solo
+dialogo de Ren'Py (una sola "cuerda"), no en varios seguidos.
+Esto sirve para escribir parrafos largos sin que el juego se
+detenga linea por linea.
+
+Lara: Hola...
+¿como estas?
+Hace tiempo no te veia.
 
 ↓
 
-e "Hola"
+l "Hola...\n¿como estas?\nHace tiempo no te veia."
+
+(Las tres lineas terminan en UN solo dialogo. Dentro del cuadro
+de texto del juego, cada "\n" se ve como un salto de linea.)
+
+Tambien funciona con el formato clasico:
+
+[Lara]
+Primera linea
+Segunda linea
+
+↓
+
+l "Primera linea\nSegunda linea"
+
+
+¿Que corta un parrafo y arranca uno nuevo (una "cuerda" nueva)?
+
+- Una linea en blanco.
+- Volver a poner el nombre del personaje, aunque sea el mismo
+  ("Lara:" o "[Lara]" de nuevo corta y empieza otro dialogo).
+- Cualquier comando: [jump ...], [call ...], [label ...],
+  menu:/[menu], [end menu], o un comentario %% ... %%.
+
+Ejemplo de corte por linea en blanco:
+
+Lara: Primer parrafo.
+
+Lara: Segundo parrafo, aparte.
+
+↓
+
+l "Primer parrafo."
+l "Segundo parrafo, aparte."
 
 
 -------------------------------------------------
@@ -170,6 +275,19 @@ Inspiración para la escena
 MENÚS
 -------------------------------------------------
 
+FORMATO CORTO (recomendado) - usa corchetes como todo lo demas:
+
+[menu]
+
+[Opción 1]
+
+[Opción 2]
+
+[end menu]
+
+
+FORMATO CLASICO (sigue funcionando igual):
+
 menu:
 
 [Opción 1]
@@ -177,6 +295,9 @@ menu:
 [Opción 2]
 
 [end menu]
+
+
+Ambos formatos generan lo mismo:
 
 ↓
 
@@ -205,16 +326,6 @@ IGNORAR
 
 
 -------------------------------------------------
-VARIABLES DE PERSONAJES
--------------------------------------------------
-
-[Lara]   → l
-[Isaak]  → i
-[Erika]  → e
-[Narrador] → narrador sin variable
-
-
--------------------------------------------------
 REGLAS IMPORTANTES
 -------------------------------------------------
 
@@ -224,18 +335,37 @@ REGLAS IMPORTANTES
 
 3. Los bloques %% ... %% se convierten en comentarios multilínea.
 
-4. [label] siempre debe ir seguido del nombre del label.
+4. Un label se escribe como "[label nombre]" (recomendado) o con
+   el nombre en la linea de abajo, formato clasico "[label]"
+   + nombre (los dos funcionan).
 
-5. [jump nombre] genera un jump.
+5. [jump nombre] genera un jump. [call nombre] genera un call.
 
-6. menu: abre un menú.
+6. Un menu se abre con "[menu]" (recomendado) o con "menu:"
+   (clasico); los dos se cierran igual, con "[end menu]".
 
-7. [Nombre] dentro de un menú se interpreta como una opción.
+7. Dentro de un menu, "[Nombre]" se interpreta como una opción
+   (a menos que sea un personaje configurado, un jump, un call
+   o un label — esos se tratan como contenido de la opción).
 
-8. [end menu] cierra el menú.
+8. "[end menu]" cierra el menú.
 
 9. Si una opción no tiene lógica todavía, genera:
 
     pass
 
-10. El nombre del archivo .md NO afecta al código generado.
+10. Un dialogo se escribe como "Nombre: texto" (recomendado, una
+    linea) o con "[Nombre]" en su propia linea seguido del texto
+    debajo (clasico). Los nombres de personaje no distinguen
+    mayusculas de minusculas.
+
+11. Si un "[Nombre]" no coincide con ningun personaje configurado
+    ni es "Narrador", el programa lo avisa en el registro de
+    conversión (no se cae en silencio).
+
+12. Si varias lineas seguidas (sin linea en blanco de por medio
+    ni un nuevo "Nombre:") pertenecen al mismo personaje, se
+    fusionan en un solo dialogo separado por "\n" en vez de
+    generar un dialogo por linea.
+
+13. El nombre del archivo .md o .txt NO afecta al código generado.
