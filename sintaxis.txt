@@ -99,6 +99,34 @@ call evento_secreto
 También funciona con los labels locales: [call .evento_secreto]
 
 -------------------------------------------------
+RETURN
+-------------------------------------------------
+
+[return]
+
+↓
+
+return
+
+
+Ejemplo:
+
+[label final_bueno]
+Lara: Gracias por jugar.
+[return]
+
+↓
+
+label final_bueno:
+
+    l "Gracias por jugar."
+    return
+
+(Sirve para terminar un label llamado con [call ...] y volver
+a donde se llamo, o para cortar el flujo del label actual.
+No distingue mayusculas: [Return] funciona igual.)
+
+-------------------------------------------------
 PERSONAJES Y DIALOGOS
 -------------------------------------------------
 
@@ -168,6 +196,60 @@ Texto
 
 Los dos formatos se pueden combinar libremente en el mismo
 archivo.
+
+-------------------------------------------------
+STOP CHARACTER (apagar al personaje que habla)
+-------------------------------------------------
+
+Cuando usas el formato clasico ("[Lara]" en su propia linea), ese
+personaje queda hablando hasta que aparece OTRO nombre valido. Si
+despues necesitas narracion o una pausa y te olvidas de poner
+"[Narrador]", el texto se le puede pegar por error al ultimo
+personaje que hablo.
+
+[stop character] apaga al hablante actual. No genera ninguna linea
+de codigo Ren'Py (a diferencia de "[Narrador]", que si convierte el
+texto siguiente en narracion). Si despues de "[stop character]"
+aparece texto sin que le pongas un "Nombre:" o "[Nombre]" nuevo, el
+conversor NO lo asume en silencio como Narrador: lo genera igual
+(para no romper el archivo) pero te avisa en el registro de
+conversion, para que lo revises y le pongas el hablante correcto.
+
+Ejemplo:
+
+[Lara]
+Ya no puedo mas.
+
+[stop character]
+
+Narrador: Silencio.
+
+↓
+
+l "Ya no puedo mas."
+
+"Silencio."
+
+(Sin avisos, porque "Narrador:" quedo puesto explicitamente.)
+
+Ejemplo con aviso (sin poner un nuevo hablante):
+
+[Lara]
+Ya no puedo mas.
+
+[stop character]
+
+Silencio.
+
+↓
+
+l "Ya no puedo mas."
+
+"Silencio."
+
+(Se genera igual, pero el log muestra: "! Aviso: hay texto sin
+personaje asignado despues de '[stop character]'...")
+
 
 -------------------------------------------------
 PARRAFOS DE VARIAS LINEAS (fusion automatica)
@@ -340,13 +422,14 @@ REGLAS IMPORTANTES
    + nombre (los dos funcionan).
 
 5. [jump nombre] genera un jump. [call nombre] genera un call.
+   [return] genera un return.
 
 6. Un menu se abre con "[menu]" (recomendado) o con "menu:"
    (clasico); los dos se cierran igual, con "[end menu]".
 
 7. Dentro de un menu, "[Nombre]" se interpreta como una opción
-   (a menos que sea un personaje configurado, un jump, un call
-   o un label — esos se tratan como contenido de la opción).
+   (a menos que sea un personaje configurado, un jump, un call,
+   un return o un label — esos se tratan como contenido de la opción).
 
 8. "[end menu]" cierra el menú.
 
@@ -361,7 +444,9 @@ REGLAS IMPORTANTES
 
 11. Si un "[Nombre]" no coincide con ningun personaje configurado
     ni es "Narrador", el programa lo avisa en el registro de
-    conversión (no se cae en silencio).
+    conversion, ignora la marca (no aparece en el juego) y el texto
+    siguiente se trata como dialogo del hablante actual. Lo mismo
+    vale para "Nombre: texto" con nombre desconocido.
 
 12. Si varias lineas seguidas (sin linea en blanco de por medio
     ni un nuevo "Nombre:") pertenecen al mismo personaje, se
@@ -369,3 +454,8 @@ REGLAS IMPORTANTES
     generar un dialogo por linea.
 
 13. El nombre del archivo .md o .txt NO afecta al código generado.
+
+14. "[stop character]" apaga al hablante actual sin generar código.
+    No asume que lo que sigue es Narrador: si aparece texto sin un
+    "Nombre:" o "[Nombre]" nuevo, se genera como Narrador pero el
+    conversor lo avisa en el registro de conversión.

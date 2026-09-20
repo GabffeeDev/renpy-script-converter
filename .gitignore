@@ -1,0 +1,8 @@
+build/
+dist/
+__pycache__/
+*.pyc
+*.spec
+personajes.json
+.md_to_rpy_cache/
+*.rar

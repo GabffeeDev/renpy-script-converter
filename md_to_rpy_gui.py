@@ -44,7 +44,7 @@ DEFAULT_CHARACTERS = {
 RESERVED_WORDS = {
     "menu", "jump", "call", "label", "pass", "return", "if", "elif",
     "else", "while", "for", "in", "is", "not", "and", "or", "none",
-    "true", "false", "scene", "show", "hide", "with", "play", "stop",
+    "True", "False", "scene", "show", "hide", "with", "play", "stop",
     "queue", "window", "define", "default", "init", "python", "image",
     "transform", "screen", "voice", "renpy", "config", "persistent",
     "store", "narrador",
@@ -52,25 +52,36 @@ RESERVED_WORDS = {
 
 
 def load_config():
-    if os.path.exists(CONFIG_PATH):
-        try:
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if "characters" in data:
-                    return data
-        except (json.JSONDecodeError, OSError):
-            pass
-
-    return {
+    defaults = {
         "characters": dict(DEFAULT_CHARACTERS),
         "last_md_dir": app_dir(),
         "last_output_dir": app_dir(),
     }
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict) and isinstance(data.get("characters"), dict):
+                    merged = dict(defaults)
+                    merged.update(data)
+                    chars = {}
+                    for k, v in data["characters"].items():
+                        if isinstance(k, str) and isinstance(v, str):
+                            chars[k] = v
+                    merged["characters"] = chars
+                    return merged
+        except (json.JSONDecodeError, OSError, AttributeError):
+            pass
+
+    return defaults
 
 
 def save_config(config):
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(config, f, ensure_ascii=False, indent=2)
+    try:
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+    except OSError:
+        pass
 
 
 # =============================================================
@@ -98,6 +109,9 @@ def validate_character(name, variable, existing_characters, editing_name=None):
 
     if name.lower() == "narrador":
         return False, "'Narrador' es una palabra reservada del sistema, no un personaje editable."
+
+    if name.lower() in {"menu", "label", "end menu", "return"} or name.lower().startswith(("jump ", "call ")):
+        return False, f"'{name}' choca con un comando (menu/label/jump/call/return) y no se puede usar como nombre de personaje."
 
     if not VAR_PATTERN.match(variable):
         return False, (
@@ -162,7 +176,7 @@ def update_label_stack(label_stack, source_indent):
     if label_stack:
         return label_stack[-1] + 1
 
-    return 1
+    return 0
 
 
 def finalize_menu_option(output, base_indent, option_has_content):
@@ -175,6 +189,7 @@ def is_menu_command(name):
     return (
         lower == "label"
         or lower == "end menu"
+        or lower == "return"
         or lower.startswith("jump ")
         or lower.startswith("call ")
     )
@@ -188,8 +203,20 @@ def count_content_lines(lines):
     return len([line for line in lines if normalize_line(line)])
 
 
+def escape_rpy_text(text):
+    """Escapa texto para usarlo dentro de "..." en Ren'Py."""
+    return text.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def read_text_lines(path):
-    with open(path, "r", encoding="utf-8") as f:
+    for encoding in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+        try:
+            with open(path, "r", encoding=encoding) as f:
+                return [line.rstrip("\n\r") for line in f.readlines()]
+        except UnicodeDecodeError:
+            continue
+
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
         return [line.rstrip("\n\r") for line in f.readlines()]
 
 
@@ -398,6 +425,15 @@ INLINE_DIALOGUE_PATTERN = re.compile(r"^([^\[\]:]+):\s*(.*)$")
 # "[label]" + nombre en la línea siguiente, que se sigue aceptando).
 LABEL_ONE_LINE_PATTERN = re.compile(r"^\[label\s+(.+?)\]$", re.IGNORECASE)
 
+# "[stop character]": apaga al hablante actual sin asumir que lo que
+# sigue es Narrador. No genera codigo; solo cambia el estado interno.
+STOP_CHARACTER_PATTERN = re.compile(r"^\[stop character\]$", re.IGNORECASE)
+
+# Valor centinela para "no hay hablante asignado" (distinto de None,
+# que ya se usa para Narrador). Sirve para poder avisar en el log si
+# aparece texto sin que el usuario haya dicho quien habla.
+STOPPED_SPEAKER = object()
+
 
 def is_special_line(line):
     """
@@ -432,9 +468,12 @@ def collect_paragraph(lines, start_index, first_text, characters):
     un salto de linea dentro del cuadro de texto, en vez de varias
     lineas de dialogo separadas.
 
+    Cada fragmento se escapa (backslash y comillas) ANTES de unir,
+    para no romper la sintaxis Ren'Py ni doble-escapar el separador.
+
     Devuelve (texto_unido, siguiente_indice_sin_consumir).
     """
-    block = [first_text]
+    block = [escape_rpy_text(first_text)]
     j = start_index
 
     while j < len(lines):
@@ -455,10 +494,24 @@ def collect_paragraph(lines, start_index, first_text, characters):
             if matched:
                 break
 
-        block.append(next_line)
+        block.append(escape_rpy_text(next_line))
         j += 1
 
     return "\\n".join(block), j
+
+
+def _looks_like_character_name(candidate):
+    """Heuristica para avisar sobre 'Nombre: texto' desconocidos sin
+    spamear con frases normales que contienen ':' (ej: 'A las 12:30...')."""
+    candidate = candidate.strip()
+    if not candidate or len(candidate) > 40:
+        return False
+    if "\n" in candidate or "\r" in candidate:
+        return False
+    words = candidate.split()
+    if len(words) > 3:
+        return False
+    return bool(re.match(r"^[\w¿?¡!.'\-áéíóúÁÉÍÓÚñÑüÜ ]+$", candidate))
 
 
 def convert_file(md_path, rpy_path, characters, log_fn=None):
@@ -473,7 +526,8 @@ def convert_file(md_path, rpy_path, characters, log_fn=None):
     current_option = None
     option_has_content = False
     label_stack = []
-    base_indent = 1
+    base_indent = 0
+    has_label = False
 
     lines = read_source_lines(md_path)
 
@@ -496,6 +550,11 @@ def convert_file(md_path, rpy_path, characters, log_fn=None):
 
         if label_one_line:
             label_name = label_one_line.group(1).strip()
+            if not label_name:
+                if log_fn:
+                    log_fn("   ! Aviso: '[label]' sin nombre, linea ignorada.")
+                i += 1
+                continue
             label_indent = source_indent
 
             while label_stack and label_indent <= label_stack[-1]:
@@ -503,6 +562,7 @@ def convert_file(md_path, rpy_path, characters, log_fn=None):
 
             label_stack.append(label_indent)
             base_indent = label_indent + 1
+            has_label = True
 
             output.append("")
             output.append(f"{tabs(label_indent)}label {label_name}:")
@@ -513,7 +573,17 @@ def convert_file(md_path, rpy_path, characters, log_fn=None):
 
         # LABEL (forma clasica en dos lineas: "[label]" + nombre debajo)
         if line.lower() == "[label]":
+            if i + 1 >= len(lines):
+                if log_fn:
+                    log_fn("   ! Aviso: '[label]' al final del archivo sin nombre, ignorado.")
+                i += 1
+                continue
             label_name = lines[i + 1].strip()
+            if not label_name:
+                if log_fn:
+                    log_fn("   ! Aviso: '[label]' seguido de linea vacia, ignorado.")
+                i += 2
+                continue
             label_indent = max(source_indent, source_indent_level(lines[i + 1]))
 
             while label_stack and label_indent <= label_stack[-1]:
@@ -521,6 +591,7 @@ def convert_file(md_path, rpy_path, characters, log_fn=None):
 
             label_stack.append(label_indent)
             base_indent = label_indent + 1
+            has_label = True
 
             output.append("")
             output.append(f"{tabs(label_indent)}label {label_name}:")
@@ -530,9 +601,14 @@ def convert_file(md_path, rpy_path, characters, log_fn=None):
             continue
 
         # JUMP
-        jump_match = re.match(r"\[jump\s+(.+?)\]", line, re.IGNORECASE)
+        jump_match = re.match(r"\[jump\s+(.+?)\]\s*$", line, re.IGNORECASE)
         if jump_match:
-            jump_target = jump_match.group(1)
+            jump_target = jump_match.group(1).strip()
+            if not jump_target:
+                if log_fn:
+                    log_fn("   ! Aviso: '[jump]' sin destino, linea ignorada.")
+                i += 1
+                continue
             indent = current_indent(base_indent, in_menu, current_option)
             output.append(f"{tabs(indent)}jump {jump_target}")
 
@@ -543,9 +619,14 @@ def convert_file(md_path, rpy_path, characters, log_fn=None):
             continue
 
         # CALL
-        call_match = re.match(r"\[call\s+(.+?)\]", line, re.IGNORECASE)
+        call_match = re.match(r"\[call\s+(.+?)\]\s*$", line, re.IGNORECASE)
         if call_match:
-            call_target = call_match.group(1)
+            call_target = call_match.group(1).strip()
+            if not call_target:
+                if log_fn:
+                    log_fn("   ! Aviso: '[call]' sin destino, linea ignorada.")
+                i += 1
+                continue
             indent = current_indent(base_indent, in_menu, current_option)
             output.append(f"{tabs(indent)}call {call_target}")
 
@@ -555,19 +636,44 @@ def convert_file(md_path, rpy_path, characters, log_fn=None):
             i += 1
             continue
 
+        # RETURN
+        if line.lower() == "[return]":
+            indent = current_indent(base_indent, in_menu, current_option)
+            output.append(f"{tabs(indent)}return")
+
+            if in_menu and current_option:
+                option_has_content = True
+
+            i += 1
+            continue
+
+        # STOP CHARACTER: apaga al hablante actual. No genera ninguna
+        # linea de codigo; solo hace que, si despues aparece texto sin
+        # un nuevo "Nombre:" o "[Nombre]", el conversor avise en el log
+        # en vez de asumir en silencio que es Narrador.
+        if STOP_CHARACTER_PATTERN.match(line):
+            current_speaker_var = STOPPED_SPEAKER
+            i += 1
+            continue
+
         # BLOQUE COMENTARIOS
         if line == "%%":
             i += 1
             indent = current_indent(base_indent, in_menu, current_option)
+            closed = False
 
             while i < len(lines):
                 comment_line = lines[i].strip()
 
                 if comment_line == "%%":
+                    closed = True
                     break
 
                 output.append(f"{tabs(indent)}# {comment_line}")
                 i += 1
+
+            if not closed and log_fn:
+                log_fn("   ! Aviso: bloque '%%' sin cierre al final del archivo.")
 
             if in_menu and current_option:
                 option_has_content = True
@@ -576,7 +682,7 @@ def convert_file(md_path, rpy_path, characters, log_fn=None):
             continue
 
         # COMENTARIO SIMPLE
-        if line.startswith("%%") and line.endswith("%%"):
+        if line.startswith("%%") and line.endswith("%%") and len(line) > 4:
             comment = line[2:-2].strip()
             indent = current_indent(base_indent, in_menu, current_option)
             output.append(f"{tabs(indent)}# {comment}")
@@ -589,6 +695,32 @@ def convert_file(md_path, rpy_path, characters, log_fn=None):
 
         # IGNORAR ENLACES OBSIDIAN
         if line.startswith("[[") and line.endswith("]]"):
+            i += 1
+            continue
+
+        # MENU (se acepta tanto "menu:" como "[menu]")
+        # NOTA: va ANTES del dialogo inline para que "menu:" nunca se
+        # confunda con un personaje llamado "menu".
+        if line.lower() == "menu:" or line.lower() == "[menu]":
+            output.append(f"{tabs(base_indent)}menu:")
+            output.append("")
+
+            in_menu = True
+            current_option = None
+            option_has_content = False
+
+            i += 1
+            continue
+
+        # END MENU
+        if line.lower() == "[end menu]":
+            if in_menu and current_option:
+                finalize_menu_option(output, base_indent, option_has_content)
+
+            in_menu = False
+            current_option = None
+            option_has_content = False
+
             i += 1
             continue
 
@@ -620,36 +752,20 @@ def convert_file(md_path, rpy_path, characters, log_fn=None):
                     i = next_i
                     continue
 
-        # MENU (se acepta tanto "menu:" como "[menu]")
-        if line.lower() == "menu:" or line.lower() == "[menu]":
-            output.append(f"{tabs(base_indent)}menu:")
-            output.append("")
-
-            in_menu = True
-            current_option = None
-            option_has_content = False
-
-            i += 1
-            continue
-
-        # END MENU
-        if line.lower() == "[end menu]":
-            if in_menu and current_option:
-                finalize_menu_option(output, base_indent, option_has_content)
-
-            in_menu = False
-            current_option = None
-            option_has_content = False
-
-            i += 1
-            continue
+                if (not matched) and text and _looks_like_character_name(speaker_candidate):
+                    if log_fn:
+                        log_fn(
+                            f"   ! Aviso: '{speaker_candidate}:' no coincide con ningun "
+                            f"personaje configurado ni es 'Narrador'; se tratara como "
+                            f"dialogo del hablante actual."
+                        )
 
         # OPCIONES MENU
         if in_menu:
-            option_match = re.match(r"\[(.+?)\]", line)
+            option_match = re.match(r"\[(.+?)\]\s*$", line)
 
             if option_match:
-                option_name = option_match.group(1)
+                option_name = option_match.group(1).strip()
 
                 is_character, _ = match_character(option_name, characters)
 
@@ -661,16 +777,16 @@ def convert_file(md_path, rpy_path, characters, log_fn=None):
                     option_has_content = False
 
                     output.append("")
-                    output.append(f'{tabs(base_indent + 1)}"{option_name}":')
+                    output.append(f'{tabs(base_indent + 1)}"{escape_rpy_text(option_name)}":')
 
                     i += 1
                     continue
 
         # CAMBIO PERSONAJE (forma clasica: "[Nombre]" solo en la linea)
-        speaker_match = re.match(r"\[(.+?)\]", line)
+        speaker_match = re.match(r"\[(.+?)\]\s*$", line)
 
         if speaker_match:
-            speaker = speaker_match.group(1)
+            speaker = speaker_match.group(1).strip()
             matched, var = match_character(speaker, characters)
 
             if matched:
@@ -681,15 +797,26 @@ def convert_file(md_path, rpy_path, characters, log_fn=None):
             if log_fn:
                 log_fn(
                     f"   ! Aviso: '[{speaker}]' no coincide con ningun personaje "
-                    f"configurado ni es 'Narrador'; se tratara como dialogo del "
-                    f"hablante actual."
+                    f"configurado ni es 'Narrador'; se ignora la marca y el texto "
+                    f"siguiente se tratara como dialogo del hablante actual."
                 )
+            i += 1
+            continue
 
         # DIALOGOS (con fusion de lineas seguidas del mismo parrafo)
         merged_text, next_i = collect_paragraph(lines, i + 1, line, characters)
         indent = current_indent(base_indent, in_menu, current_option)
 
-        if current_speaker_var is None:
+        if current_speaker_var is STOPPED_SPEAKER:
+            if log_fn:
+                log_fn(
+                    f"   ! Aviso: hay texto sin personaje asignado despues de "
+                    f"'[stop character]' (se genero como Narrador): \"{merged_text[:40]}"
+                    f"{'...' if len(merged_text) > 40 else ''}\". Poné 'Nombre:' o "
+                    f"'[Nombre]' antes si querés que hable alguien."
+                )
+            output.append(f'{tabs(indent)}"{merged_text}"')
+        elif current_speaker_var is None:
             output.append(f'{tabs(indent)}"{merged_text}"')
         else:
             output.append(f'{tabs(indent)}{current_speaker_var} "{merged_text}"')
@@ -698,6 +825,23 @@ def convert_file(md_path, rpy_path, characters, log_fn=None):
             option_has_content = True
 
         i = next_i
+
+    if in_menu and current_option:
+        finalize_menu_option(output, base_indent, option_has_content)
+
+    if in_menu and log_fn:
+        log_fn("   ! Aviso: '[menu]' sin '[end menu]' al final del archivo.")
+
+    if not has_label and any(normalize_line(l) for l in output):
+        if log_fn:
+            log_fn("   ! Aviso: archivo sin '[label]'; se envolvio en 'label start:' para que sea valido en Ren'Py.")
+        wrapped = ["label start:", ""]
+        for l in output:
+            if normalize_line(l):
+                wrapped.append("    " + l)
+            else:
+                wrapped.append("")
+        output = wrapped
 
     return write_rpy_file(rpy_path, output)
 
@@ -809,10 +953,19 @@ class App(ctk.CTk):
         self.log_box.configure(state="disabled")
 
     def log(self, text):
-        self.log_box.configure(state="normal")
-        self.log_box.insert("end", text + "\n")
-        self.log_box.see("end")
-        self.log_box.configure(state="disabled")
+        try:
+            self.after(0, self._append_log, text)
+        except RuntimeError:
+            self._append_log(text)
+
+    def _append_log(self, text):
+        try:
+            self.log_box.configure(state="normal")
+            self.log_box.insert("end", text + "\n")
+            self.log_box.see("end")
+            self.log_box.configure(state="disabled")
+        except Exception:
+            pass
 
     def pick_md_files(self):
         initial = self.config_data.get("last_md_dir", app_dir())
@@ -836,11 +989,16 @@ class App(ctk.CTk):
 
     def pick_output_dir(self):
         initial = self.config_data.get("last_output_dir", app_dir())
-        os.makedirs(initial, exist_ok=True)
+        if not initial or not isinstance(initial, str):
+            initial = app_dir()
+        try:
+            os.makedirs(initial, exist_ok=True)
+        except OSError:
+            initial = app_dir()
 
         folder = filedialog.askdirectory(
             title="Selecciona la carpeta destino",
-            initialdir=initial,
+            initialdir=initial if os.path.isdir(initial) else app_dir(),
         )
 
         if folder:
@@ -863,46 +1021,73 @@ class App(ctk.CTk):
         thread.start()
 
     def _convert_worker(self):
-        characters = self.config_data.get("characters", {})
-        os.makedirs(self.output_dir, exist_ok=True)
+        def thread_log(text):
+            try:
+                self.after(0, self._append_log, text)
+            except RuntimeError:
+                pass
 
-        converted = 0
-        changed_total = 0
+        try:
+            characters = self.config_data.get("characters", {})
+            if not isinstance(characters, dict):
+                thread_log("! Error: 'characters' corrupto en personajes.json, se usa vacio.")
+                characters = {}
+            try:
+                os.makedirs(self.output_dir, exist_ok=True)
+            except OSError as exc:
+                thread_log(f"! Error: no se pudo crear la carpeta destino: {exc}")
+                return
 
-        for md_path in self.md_files:
-            filename = os.path.basename(md_path)
-            rpy_name = os.path.splitext(filename)[0] + ".rpy"
-            rpy_path = os.path.join(self.output_dir, rpy_name)
-            existed_before = os.path.exists(rpy_path)
+            converted = 0
+            changed_total = 0
 
-            result = convert_file(md_path, rpy_path, characters, log_fn=self.log)
+            for md_path in self.md_files:
+                filename = os.path.basename(md_path)
+                rpy_name = os.path.splitext(filename)[0] + ".rpy"
+                rpy_path = os.path.join(self.output_dir, rpy_name)
+                existed_before = os.path.exists(rpy_path)
 
-            if existed_before:
-                details = []
+                try:
+                    result = convert_file(md_path, rpy_path, characters, log_fn=thread_log)
+                except Exception as exc:
+                    thread_log(f"X {filename} (error: {exc})")
+                    continue
 
-                if result.added:
-                    details.append(f"{result.added} lineas nuevas")
-                if result.replaced:
-                    details.append(f"{result.replaced} lineas reemplazadas")
-                if result.deleted:
-                    details.append(f"{result.deleted} lineas eliminadas")
                 if result.conflicts:
-                    details.append(f"{result.conflicts} bloque(s) conservados por conflicto")
-                if result.bootstrapped:
-                    details.append("base incremental creada")
+                    thread_log(
+                        f"! {filename} ({result.conflicts} bloque(s) en conflicto: "
+                        f"archivo .rpy NO actualizado para no pisar tus cambios manuales)"
+                    )
+                    continue
 
-                if details:
-                    self.log(f"+ {filename} ({', '.join(details)})")
+                if existed_before:
+                    details = []
+
+                    if result.added:
+                        details.append(f"{result.added} lineas nuevas")
+                    if result.replaced:
+                        details.append(f"{result.replaced} lineas reemplazadas")
+                    if result.deleted:
+                        details.append(f"{result.deleted} lineas eliminadas")
+                    if result.bootstrapped:
+                        details.append("base incremental creada")
+
+                    if details:
+                        thread_log(f"+ {filename} ({', '.join(details)})")
+                    else:
+                        thread_log(f"= {filename} (sin cambios)")
                 else:
-                    self.log(f"= {filename} (sin cambios)")
-            else:
-                self.log(f"OK {filename}")
+                    thread_log(f"OK {filename}")
 
-            converted += 1
-            changed_total += result.changed
+                converted += 1
+                changed_total += result.changed
 
-        self.log(f"\nConversion terminada. ({converted} archivos, {changed_total} cambios)")
-        self.after(0, lambda: self.convert_btn.configure(state="normal", text="3. Convertir"))
+            thread_log(f"\nConversion terminada. ({converted} archivos, {changed_total} cambios)")
+        finally:
+            try:
+                self.after(0, lambda: self.convert_btn.configure(state="normal", text="3. Convertir"))
+            except RuntimeError:
+                pass
 
     # ---------------------------------------------------------
     # PESTAÑA: PERSONAJES
@@ -955,8 +1140,11 @@ class App(ctk.CTk):
         self.character_rows.append(row)
 
     def _delete_row(self, row):
-        row.destroy()
-        self.character_rows.remove(row)
+        try:
+            row.destroy()
+        finally:
+            if row in self.character_rows:
+                self.character_rows.remove(row)
 
     def save_characters(self):
         new_characters = {}
