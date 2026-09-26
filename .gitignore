@@ -5,4 +5,5 @@ __pycache__/
 *.spec
 personajes.json
 .md_to_rpy_cache/
+.pytest_cache/
 *.rar

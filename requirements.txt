@@ -1,2 +1,5 @@
 customtkinter==5.2.2
 pyinstaller==6.11.1
+
+# Solo para desarrollar: correr los tests con "python -m pytest"
+pytest==9.0.3
